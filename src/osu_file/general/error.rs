@@ -8,6 +8,9 @@ use crate::helper::{macros::unreachable_err_impl, ParseZeroOneBoolError};
 #[non_exhaustive]
 /// Error used when there was a problem parsing the `General` section.
 pub enum ParseError {
+    /// A Field in `General` failed to parse as a `Decimal`.
+    #[error(transparent)]
+    RustDecimalError(#[from] rust_decimal::Error),
     /// A Field in `General` failed to parse as a `Integer`.
     #[error(transparent)]
     ParseIntError(#[from] ParseIntError),

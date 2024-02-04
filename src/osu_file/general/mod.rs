@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use std::num::{IntErrorKind, ParseIntError};
 use std::path::PathBuf;
 
-use crate::osu_file::types::Decimal;
+use rust_decimal::Decimal;
 use crate::parsers::comma;
 use nom::bytes::complete::take_till;
 use nom::combinator::map_res;
@@ -28,7 +28,7 @@ versioned_field!(AudioHash, String, no_versions, |s| { Ok(s.to_string()) } -> ()
     |version| { if version > 13 { None } else { Some(String::new())}
 });
 versioned_field!(PreviewTime, Integer, no_versions, |s| { s.parse() } -> ParseIntError,, -1);
-versioned_field!(StackLeniency, Decimal, no_versions, |s| { s.parse() } -> (),, Decimal::from(dec!(0.7)));
+versioned_field!(StackLeniency, Decimal, no_versions, |s| { s.parse() } -> rust_decimal::Error,, Decimal::from(dec!(0.7)));
 versioned_field!(LetterboxInBreaks, bool, no_versions, |s| { helper::parse_zero_one_bool(s) } -> helper::ParseZeroOneBoolError, boolean, false);
 versioned_field!(StoryFireInFront, bool, no_versions, |s| { helper::parse_zero_one_bool(s) } -> helper::ParseZeroOneBoolError, boolean, true);
 versioned_field!(UseSkinSprites, bool, no_versions, |s| { helper::parse_zero_one_bool(s) } -> helper::ParseZeroOneBoolError, boolean, false);
@@ -82,15 +82,19 @@ versioned_field!(EditorBookmarks, Vec<Integer>, no_versions, |s| {
     Some(v.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(","))
 },
 );
-versioned_field!(EditorDistanceSpacing, Decimal, no_versions, |s| { s.parse() } -> (),
-|v, version| {
-    if version > 5 {
-        return None;
-    }
+versioned_field!(
+    EditorDistanceSpacing,
+    Decimal,
+    no_versions,
+    |s| { s.parse() } -> rust_decimal::Error,
+    |v, version| {
+        if version > 5 {
+            return None;
+        }
 
-    Some(v.to_string())
-}
-,);
+        Some(v.to_string())
+    },
+);
 
 general_section!(
     /// A struct representing the general section of an osu file.

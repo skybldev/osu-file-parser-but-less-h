@@ -1,7 +1,7 @@
 pub mod error;
 pub mod types;
 
-use crate::osu_file::types::Decimal;
+use rust_decimal::Decimal;
 use either::Either;
 use nom::branch::alt;
 use nom::bytes::complete::*;
@@ -81,7 +81,7 @@ pub struct HitObject {
     /// The position of the hitobject.
     pub position: Position,
     /// The time when the object is to be hit, in milliseconds from the beginning of the beatmap's audio.
-    pub time: Decimal,
+    pub time: u32,
     /// The hitobject parameters.
     /// Each hitobject contains different parameters.
     /// Also is used to know which hitobject type this is.
@@ -161,7 +161,7 @@ impl HitObject {
     }
 }
 
-const OLD_VERSION_TIME_OFFSET: rust_decimal::Decimal = dec!(24);
+const OLD_VERSION_TIME_OFFSET: u32 = 24;
 
 impl VersionedFromStr for HitObject {
     type Err = ParseHitObjectError;
@@ -199,11 +199,9 @@ impl VersionedFromStr for HitObject {
                 context(ParseHitObjectError::InvalidTime.into(), comma_field_type()),
             )
             // version 3 has a slight time delay of 24ms
-            .map(|mut t: Decimal| {
+            .map(|mut t: u32| {
                 if (3..=4).contains(&version) {
-                    if let Either::Left(value) = t.get_mut() {
-                        *value += OLD_VERSION_TIME_OFFSET;
-                    }
+                    t += OLD_VERSION_TIME_OFFSET;
                 }
 
                 t
@@ -377,11 +375,9 @@ impl VersionedFromStr for HitObject {
                         comma_field_type(),
                     ),
                 )
-                .map(|mut t: Decimal| {
+                .map(|mut t: u32 | {
                     if (3..=4).contains(&version) {
-                        if let Either::Left(value) = t.get_mut() {
-                            *value += OLD_VERSION_TIME_OFFSET;
-                        }
+                        t += OLD_VERSION_TIME_OFFSET;
                     }
 
                     t
@@ -418,11 +414,9 @@ impl VersionedFromStr for HitObject {
                 ParseHitObjectError::InvalidEndTime.into(),
                 map_res(take_until(":"), |s: &str| s.parse()),
             )
-            .map(|mut t: Decimal| {
+            .map(|mut t: u32 | {
                 if (3..=4).contains(&version) {
-                    if let Either::Left(value) = t.get_mut() {
-                        *value += OLD_VERSION_TIME_OFFSET;
-                    }
+                    t += OLD_VERSION_TIME_OFFSET;
                 }
 
                 t
@@ -458,10 +452,7 @@ impl VersionedToString for HitObject {
             self.position.x.to_string(),
             self.position.y.to_string(),
             if (3..=4).contains(&version) {
-                match self.time.get() {
-                    Either::Left(value) => (value - OLD_VERSION_TIME_OFFSET).to_string(),
-                    Either::Right(value) => value.to_string(),
-                }
+                (self.time - OLD_VERSION_TIME_OFFSET).to_string()
             } else {
                 self.time.to_string()
             },
@@ -524,20 +515,14 @@ impl VersionedToString for HitObject {
             }
             HitObjectParams::Spinner { end_time } => {
                 properties.push(if (3..=4).contains(&version) {
-                    match end_time.get() {
-                        Either::Left(value) => (value - OLD_VERSION_TIME_OFFSET).to_string(),
-                        Either::Right(value) => value.to_string(),
-                    }
+                    (end_time - OLD_VERSION_TIME_OFFSET).to_string()
                 } else {
                     end_time.to_string()
                 });
             }
             HitObjectParams::OsuManiaHold { end_time } => {
                 properties.push(if (3..=4).contains(&version) {
-                    match end_time.get() {
-                        Either::Left(value) => (value - OLD_VERSION_TIME_OFFSET).to_string(),
-                        Either::Right(value) => value.to_string(),
-                    }
+                    (end_time - OLD_VERSION_TIME_OFFSET).to_string()
                 } else {
                     end_time.to_string()
                 });
@@ -580,8 +565,8 @@ impl VersionedToString for HitObject {
 pub enum HitObjectParams {
     HitCircle,
     Slider(SlideParams),
-    Spinner { end_time: Decimal },
-    OsuManiaHold { end_time: Decimal },
+    Spinner { end_time: u32 },
+    OsuManiaHold { end_time: u32 },
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
