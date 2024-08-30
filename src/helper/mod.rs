@@ -1,4 +1,3 @@
-pub mod macros;
 pub mod trait_ext;
 
 use std::num::ParseIntError;
@@ -6,6 +5,16 @@ use std::num::ParseIntError;
 use thiserror::Error;
 
 use crate::osu_file::{Version, VersionedToString};
+
+pub const OLD_VERSION_TIME_OFFSET: u32 = 24;
+
+pub fn add_old_version_time_offset(t: u32, version: Version) -> u32 {
+    if (3..=4).contains(&version) {
+        t + OLD_VERSION_TIME_OFFSET
+    } else {
+        t
+    }
+}
 
 pub fn pipe_vec_to_string<T>(vec: &[T], version: Version) -> String
 where
@@ -17,7 +26,7 @@ where
         .join("|")
 }
 
-pub fn nth_bit_state_i64(value: i64, nth_bit: u8) -> bool {
+pub fn check_flag_at_bit_u8(value: u8, nth_bit: u8) -> bool {
     value >> nth_bit & 1 == 1
 }
 

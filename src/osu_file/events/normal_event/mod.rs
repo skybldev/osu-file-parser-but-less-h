@@ -6,6 +6,7 @@ use nom::{
     sequence::{preceded, tuple},
     Parser,
 };
+use rust_decimal::Decimal;
 
 use crate::{
     osu_file::{FilePath, Integer, Position, Version, VersionedFromStr, VersionedToString},
@@ -13,7 +14,6 @@ use crate::{
         comma, comma_field, comma_field_type, comma_field_versioned_type, consume_rest_type,
         consume_rest_versioned_type,
     },
-    Decimal,
 };
 
 pub use error::*;

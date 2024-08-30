@@ -1,20 +1,9 @@
-//! Module defining misc types used for different hitobjects, such as [CurveType] used for [`Slider`][super::SlideParams] curve types.
-
 use std::num::{NonZeroUsize, ParseIntError};
-
-use nom::{
-    branch::alt,
-    bytes::complete::{tag, take_while},
-    combinator::map_res,
-    error::context,
-    sequence::{preceded, terminated, tuple},
-    Parser,
-};
+use rust_decimal::Decimal;
 
 use crate::{
     helper::nth_bit_state_i64,
-    osu_file::*,
-    parsers::{consume_rest_type, consume_rest_versioned_type, nothing},
+    osu_file::*
 };
 
 use super::error::*;
@@ -38,15 +27,17 @@ impl ComboSkipCount {
     }
 }
 
-impl VersionedTryFrom<u8> for ComboSkipCount {
+impl TryFrom<u8> for ComboSkipCount {
     type Error = ComboSkipCountTooHigh;
 
-    fn try_from(value: u8, _: Version) -> Result<Option<Self>, Self::Error> {
+    fn try_from(type_number: u8) -> Result<Self, Self::Error> {
+        let value = type_number >> 4 & 0b111;
+
         // limit to 3 bits
         if value > 0b111 {
             Err(ComboSkipCountTooHigh)
         } else {
-            Ok(Some(Self(value)))
+            Ok(Self(value))
         }
     }
 }
@@ -70,36 +61,15 @@ impl VersionedFromStr for EdgeSet {
     type Err = ParseColonSetError;
 
     fn from_str(s: &str, version: Version) -> Result<Option<Self>, Self::Err> {
-        let (_, (normal_set, addition_set)) = tuple((
-            terminated(
-                context(
-                    ParseColonSetError::InvalidFirstItem.into(),
-                    map_res(take_while(|c: char| c != ':'), |s| {
-                        SampleSet::from_str(s, version).map(|s| s.unwrap())
-                    }),
-                ),
-                context(ParseColonSetError::MissingSeparator.into(), tag(":")),
-            ),
-            context(
-                ParseColonSetError::InvalidFirstItem.into(),
-                consume_rest_versioned_type(version),
-            ),
-        ))(s)?;
+        let split: Vec<&str> = s.split(':').collect();
+        if split.len() != 2 {
+            return Err(ParseColonSetError::InvalidLength);
+        }
 
         Ok(Some(Self {
-            normal_set,
-            addition_set,
+            normal_set: split[0].parse::<SampleSet>()?,
+            addition_set: split[1].parse::<SampleSet>()?
         }))
-    }
-}
-
-impl VersionedToString for EdgeSet {
-    fn to_string(&self, version: Version) -> Option<String> {
-        Some(format!(
-            "{}:{}",
-            self.normal_set.to_string(version).unwrap(),
-            self.addition_set.to_string(version).unwrap()
-        ))
     }
 }
 
@@ -108,26 +78,22 @@ impl VersionedToString for EdgeSet {
 pub struct CurvePoint(pub Position);
 
 impl VersionedFromStr for CurvePoint {
-    type Err = ParseColonSetError;
+    type Err = ParseCurvePointError;
 
     fn from_str(s: &str, _: Version) -> Result<Option<Self>, Self::Err> {
-        let (_, (x, y)) = tuple((
-            terminated(
-                context(
-                    ParseColonSetError::InvalidFirstItem.into(),
-                    map_res(take_while(|c: char| c != ':'), |s: &str| s.parse()),
-                ),
-                context(ParseColonSetError::MissingSeparator.into(), tag(":")),
-            ),
-            context(
-                ParseColonSetError::InvalidFirstItem.into(),
-                consume_rest_type(),
-            ),
-        ))(s)?;
+        let split: Vec<&str> = s.split(':').collect();
+        if split.len() != 2 {
+            return Err(ParseCurvePointError::InvalidLength);
+        }
 
-        let position = Position { x, y };
-
-        Ok(Some(Self(position)))
+        Ok(Some(Self(Position {
+            x: split[0]
+                .parse::<Decimal>()
+                .map_err(|_| { ParseCurvePointError::InvalidX })?,
+            y: split[1]
+                .parse::<Decimal>()
+                .map_err(|_| { ParseCurvePointError::InvalidY })?
+        })))
     }
 }
 
@@ -153,14 +119,14 @@ pub enum SampleSet {
     Other(usize),
 }
 
-impl VersionedFrom<SampleSet> for usize {
-    fn from(set: SampleSet, _: Version) -> Option<Self> {
+impl From<SampleSet> for usize {
+    fn from(set: SampleSet) -> Self {
         match set {
-            SampleSet::NoCustomSampleSet => Some(0),
-            SampleSet::NormalSet => Some(1),
-            SampleSet::SoftSet => Some(2),
-            SampleSet::DrumSet => Some(3),
-            SampleSet::Other(other) => Some(other),
+            SampleSet::NoCustomSampleSet => 0,
+            SampleSet::NormalSet => 1,
+            SampleSet::SoftSet => 2,
+            SampleSet::DrumSet => 3,
+            SampleSet::Other(other) => other,
         }
     }
 }
@@ -171,29 +137,19 @@ impl VersionedDefault for SampleSet {
     }
 }
 
-impl VersionedToString for SampleSet {
-    fn to_string(&self, version: Version) -> Option<String> {
-        Some(
-            <usize as VersionedFrom<SampleSet>>::from(*self, version)
-                .unwrap()
-                .to_string(),
-        )
-    }
-}
-
-impl VersionedFromStr for SampleSet {
+impl FromStr for SampleSet {
     type Err = ParseSampleSetError;
 
-    fn from_str(s: &str, _: Version) -> Result<Option<Self>, Self::Err> {
+    fn from_str(s: &str) -> Result<SampleSet, ParseSampleSetError> {
         let s = s.parse()?;
 
-        match s {
-            0 => Ok(Some(Self::NoCustomSampleSet)),
-            1 => Ok(Some(Self::NormalSet)),
-            2 => Ok(Some(Self::SoftSet)),
-            3 => Ok(Some(Self::DrumSet)),
-            _ => Ok(Some(Self::Other(s))),
-        }
+        Ok(match s {
+            0 => Self::NoCustomSampleSet,
+            1 => Self::NormalSet,
+            2 => Self::SoftSet,
+            3 => Self::DrumSet,
+            _ => Self::Other(s),
+        })
     }
 }
 
@@ -486,117 +442,49 @@ pub struct HitSample {
     pub addition_set: SampleSet,
     pub index: SampleIndex,
     pub volume: Volume,
-    pub filename: String,
+    pub filename: Option<String>,
 }
 
 impl VersionedFromStr for HitSample {
     type Err = ParseHitSampleError;
 
     fn from_str(s: &str, version: Version) -> std::result::Result<Option<Self>, Self::Err> {
-        let field = || take_while(|c| c != ':');
-        let field_separator = || tag(":");
-        let sample_set = || {
-            context(
-                ParseHitSampleError::InvalidSampleSet.into(),
-                map_res(field(), |v: &str| {
-                    SampleSet::from_str(v, version).map(|s| s.unwrap())
-                })
-                .map(Some),
-            )
-        };
+        let split: Vec<&str> = s.split(':').collect();
+        
+        if split.len() < 4 {
+            return Err(ParseHitSampleError::InvalidLength);
+        }
 
-        let (_, hitsample) = alt((
-            nothing().map(|_| <HitSample as VersionedDefault>::default(version).unwrap()),
-            tuple((
-                // normal_set
-                alt((nothing().map(|_| None), sample_set())),
-                // addition_set
-                alt((
-                    preceded(field_separator(), nothing()).map(|_| None),
-                    nothing().map(|_| None),
-                    preceded(
-                        context(
-                            ParseHitSampleError::MissingSeparator.into(),
-                            field_separator(),
-                        ),
-                        sample_set(),
-                    ),
-                )),
-                // index
-                alt((
-                    preceded(field_separator(), nothing()).map(|_| None),
-                    nothing().map(|_| None),
-                    preceded(
-                        context(
-                            ParseHitSampleError::MissingSeparator.into(),
-                            field_separator(),
-                        ),
-                        context(
-                            ParseHitSampleError::InvalidIndex.into(),
-                            map_res(field(), |v: &str| {
-                                SampleIndex::from_str(v, version).map(|i| i.unwrap())
-                            })
-                            .map(Some),
-                        ),
-                    ),
-                )),
-                // volume
-                alt((
-                    preceded(field_separator(), nothing()).map(|_| None),
-                    nothing().map(|_| None),
-                    preceded(
-                        context(
-                            ParseHitSampleError::MissingSeparator.into(),
-                            field_separator(),
-                        ),
-                        context(
-                            ParseHitSampleError::InvalidVolume.into(),
-                            map_res(field(), |v: &str| {
-                                Volume::from_str(v, version).map(|v| v.unwrap())
-                            })
-                            .map(Some),
-                        ),
-                    ),
-                )),
-                // filename
-                alt((
-                    preceded(field_separator(), nothing()).map(|_| None),
-                    nothing().map(|_| None),
-                    preceded(
-                        context(
-                            ParseHitSampleError::MissingSeparator.into(),
-                            field_separator(),
-                        ),
-                        field().map(Some),
-                    ),
-                )),
-            ))
-            .map(|(normal_set, addition_set, index, volume, filename)| {
-                let normal_set = normal_set.unwrap_or_else(|| SampleSet::default(version).unwrap());
-                let addition_set =
-                    addition_set.unwrap_or_else(|| SampleSet::default(version).unwrap());
-                let index = index.unwrap_or_else(|| SampleIndex::default(version).unwrap());
-                let volume = volume.unwrap_or_else(|| Volume::default(version).unwrap());
-                let filename = filename.unwrap_or_default().to_string();
-
-                HitSample {
-                    normal_set,
-                    addition_set,
-                    index,
-                    volume,
-                    filename,
-                }
-            }),
-        ))(s)?;
-
-        Ok(Some(hitsample))
+        Ok(Some(Self {
+            normal_set: SampleSet
+                ::from_str(split[0], version)
+                .map_err(|_| { ParseHitSampleError::InvalidNormalSet })?
+                .unwrap(),
+            addition_set: SampleSet
+                ::from_str(split[1], version)
+                .map_err(|_| { ParseHitSampleError::InvalidAdditionSet })?
+                .unwrap(),
+            index: SampleIndex
+                ::from_str(split[2], version)
+                .map_err(|_| { ParseHitSampleError::InvalidIndex })?
+                .unwrap(),
+            volume: Volume
+                ::from_str(split[3], version)
+                .map_err(|_| { ParseHitSampleError::InvalidVolume })?
+                .unwrap(),
+            filename: if split.len() == 5 {
+                Some(String::from_str(split[4]).unwrap())
+            } else {
+                None
+            }
+        }))
     }
 }
 
 impl VersionedToString for HitSample {
     fn to_string(&self, version: Version) -> Option<String> {
         let volume: Integer = <i32 as VersionedFrom<Volume>>::from(self.volume, version).unwrap();
-        let filename = &self.filename;
+        let filename = &self.filename.unwrap_or_default();
 
         match version {
             MIN_VERSION..=9 => None,
@@ -623,7 +511,7 @@ impl VersionedDefault for HitSample {
             addition_set: SampleSet::default(version).unwrap(),
             index: SampleIndex::default(version).unwrap(),
             volume: Volume::default(version).unwrap(),
-            filename: "".to_string(),
+            filename: None,
         })
     }
 }

@@ -3,8 +3,6 @@ use std::num::ParseIntError;
 use strum_macros::{EnumString, IntoStaticStr};
 use thiserror::Error;
 
-use crate::helper::macros::verbose_error_to_error;
-
 #[derive(Debug, Error)]
 #[error(transparent)]
 pub struct ParseError(#[from] ParseTimingPointError);
@@ -16,48 +14,31 @@ pub enum ParseTimingPointError {
     /// Invalid `time` value.
     #[error("Invalid `time` value")]
     InvalidTime,
-    /// Missing `beat_length` field.
+    /// Invalid `beat_length` field.
     #[error("Missing `beat_length` field")]
-    MissingBeatLength,
-    /// Missing `meter` field.
-    #[error("Missing `meter` field")]
-    MissingMeter,
+    InvalidBeatLength,
     /// Invalid `meter` value.
     #[error("Invalid `meter` value")]
     InvalidMeter,
-    /// Missing `sample_set` field.
-    #[error("Missing `sample_set` field")]
-    MissingSampleSet,
     /// Invalid `sample_set` value.
     #[error("Invalid `sample_set` value")]
     InvalidSampleSet,
-    /// Missing `sample_index` field.
-    #[error("Missing `sample_index` field")]
-    MissingSampleIndex,
     /// Invalid `sample_index` value.
     #[error("Invalid `sample_index` value")]
     InvalidSampleIndex,
-    /// Missing `volume` field.
-    #[error("Missing `volume` field")]
-    MissingVolume,
     /// Invalid `volume` value.
     #[error("Invalid `volume` value")]
     InvalidVolume,
-    /// Missing `effects` field.
-    #[error("Missing `effects` field")]
-    MissingEffects,
     /// Invalid `effects` value.
     #[error("Invalid `effects` value")]
     InvalidEffects,
-    /// Missing `uninherited` field.
-    #[error("Missing `uninherited` field")]
-    MissingUninherited,
     /// Invalid `uninherited` value.
     #[error("Invalid `uninherited` value")]
     InvalidUninherited,
+    /// Invalid field count.
+    #[error("The number of fields in the timing point is invalid.")]
+    InvalidFieldCount
 }
-
-verbose_error_to_error!(ParseTimingPointError);
 
 /// There was some problem parsing the [`SampleSet`][super::SampleSet].
 #[derive(Debug, Error, PartialEq, Eq)]

@@ -1,18 +1,8 @@
 pub mod error;
 pub mod types;
 
-use crate::osu_file::types::Decimal;
-use either::Either;
-use nom::{
-    branch::alt,
-    combinator::{cut, map_res, success, verify, rest},
-    error::context,
-    sequence::{preceded, tuple},
-    Parser,
-};
+use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
-
-use crate::{helper::parse_zero_one_bool, parsers::*};
 
 use super::{
     Error, Integer, Version, VersionedDefault, VersionedFrom, VersionedFromStr, VersionedToString,
@@ -58,18 +48,6 @@ impl VersionedFromStr for TimingPoints {
     }
 }
 
-impl VersionedToString for TimingPoints {
-    fn to_string(&self, version: Version) -> Option<String> {
-        Some(
-            self.0
-                .iter()
-                .filter_map(|t| t.to_string(version))
-                .collect::<Vec<_>>()
-                .join("\n"),
-        )
-    }
-}
-
 impl VersionedDefault for TimingPoints {
     fn default(_: Version) -> Option<Self> {
         Some(TimingPoints(Vec::new()))
@@ -82,14 +60,14 @@ impl VersionedDefault for TimingPoints {
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub struct TimingPoint {
     // for some reason decimal is parsed anyway in the beatmap???
-    time: Decimal,
-    beat_length: Decimal,
-    meter: Integer,
-    sample_set: SampleSet,
-    sample_index: SampleIndex,
-    volume: Volume,
-    uninherited: Option<bool>,
-    effects: Option<Effects>,
+    pub time: Integer,
+    pub beat_length: Decimal,
+    pub meter: Integer,
+    pub sample_set: SampleSet,
+    pub sample_index: SampleIndex,
+    pub volume: Volume,
+    pub uninherited: bool,
+    pub effects: Option<Effects>,
 }
 
 impl TimingPoint {
@@ -124,7 +102,7 @@ impl TimingPoint {
             sample_set,
             sample_index,
             volume,
-            uninherited: Some(false),
+            uninherited: false,
             effects: Some(effects),
         }
     }
@@ -146,7 +124,7 @@ impl TimingPoint {
             sample_set,
             sample_index,
             volume,
-            uninherited: Some(true),
+            uninherited: true,
             effects: Some(effects),
         }
     }
@@ -154,109 +132,20 @@ impl TimingPoint {
     /// Calculates BPM using the `beatLength` field when unherited.
     /// - Returns `None` if the timing point is inherited or `beat_length` isn't a valid decimal.
     pub fn calc_bpm(&self) -> Option<rust_decimal::Decimal> {
-        match self.uninherited {
-            Some(uninherited) => {
-                if uninherited {
-                    match self.beat_length.get() {
-                        Either::Left(value) => Some(Self::beat_duration_ms_to_bpm(*value)),
-                        Either::Right(_) => None,
-                    }
-                } else {
-                    None
-                }
-            }
-            None => None,
+        if self.uninherited {
+            Some(Self::beat_duration_ms_to_bpm(self.beat_length))
+        } else {
+            None
         }
     }
     /// Calculates the slider velocity multiplier when the timing point is inherited.
     /// - Returns `None` if the timing point is uninherited or `beat_length` isn't a valid decimal.
     pub fn calc_slider_velocity_multiplier(&self) -> Option<rust_decimal::Decimal> {
-        match self.uninherited {
-            Some(uninherited) => {
-                if uninherited {
-                    None
-                } else {
-                    match self.beat_length.get() {
-                        Either::Left(value) => {
-                            Some(rust_decimal::Decimal::ONE / (value / dec!(-100)))
-                        }
-                        Either::Right(_) => None,
-                    }
-                }
-            }
-            None => None,
+        if self.uninherited {
+            None
+        } else {
+            Some(rust_decimal::Decimal::ONE / (self.beat_length / dec!(-100)))
         }
-    }
-
-    /// Start time of the timing section, in milliseconds from the beginning of the beatmap's audio.
-    /// The end of the timing section is the next timing point's time (or never, if this is the last timing point).
-    pub fn time(&self) -> &Decimal {
-        &self.time
-    }
-
-    /// Set the timing point's start time.
-    pub fn set_time(&mut self, time: Integer) {
-        self.time = time.into();
-    }
-
-    /// Amount of beats in a measure. Inherited timing points ignore this property.
-    pub fn meter(&self) -> i32 {
-        self.meter
-    }
-
-    /// Set the timing point's meter field.
-    pub fn set_meter(&mut self, meter: Integer) {
-        self.meter = meter;
-    }
-
-    /// Default sample set for hit objects
-    pub fn sample_set(&self) -> SampleSet {
-        self.sample_set
-    }
-
-    /// Set the timing point's sample set.
-    pub fn set_sample_set(&mut self, sample_set: SampleSet) {
-        self.sample_set = sample_set;
-    }
-
-    /// Custom sample index for hit objects.
-    pub fn sample_index(&self) -> SampleIndex {
-        self.sample_index
-    }
-
-    /// Get a mutable reference to the timing point's sample index.
-    pub fn sample_index_mut(&mut self) -> &mut SampleIndex {
-        &mut self.sample_index
-    }
-
-    /// Volume percentage for hit objects.
-    pub fn volume(&self) -> &Volume {
-        &self.volume
-    }
-
-    /// Set the timing point's volume.
-    pub fn set_volume(&mut self, volume: Volume) {
-        self.volume = volume;
-    }
-
-    /// Get the timing point's uninherited.
-    pub fn uninherited(&self) -> bool {
-        self.uninherited.unwrap_or(true)
-    }
-
-    /// Set the timing point's uninherited.
-    pub fn set_uninherited(&mut self, uninherited: bool) {
-        self.uninherited = Some(uninherited);
-    }
-
-    /// Get the timing point's effects.
-    pub fn effects(&self) -> Option<&Effects> {
-        self.effects.as_ref()
-    }
-
-    /// Get a mutable reference to the timing point's effects.
-    pub fn effects_mut(&mut self) -> &mut Option<Effects> {
-        &mut self.effects
     }
 }
 
@@ -271,212 +160,51 @@ impl VersionedFromStr for TimingPoint {
         let sample_index_fallback = <SampleIndex as VersionedFrom<u32>>::from(1, version).unwrap();
         let volume_fallback = <Volume as VersionedFrom<Integer>>::from(100, version).unwrap();
 
-        // for now we limit some fields for certain versions since we aren't sure if they are optional or not
-        // could change in the future to be more flexible
-        let (
-            _,
-            (
-                time,
-                (beat_length, meter, sample_set, (sample_index, (volume, uninherited, effects))),
-            ),
-        ) = tuple((
-            context(
-                ParseTimingPointError::InvalidTime.into(),
-                comma_field_type(),
-            )
-            .map(|mut t: Decimal| {
-                if (3..=4).contains(&version) {
-                    if let Either::Left(value) = t.get_mut() {
-                        *value += OLD_VERSION_TIME_OFFSET;
-                    }
-                }
+        // make this simple bruh
+        let split_by_comma: Vec<&str> = s.split(",").collect();
 
-                t
-            }),
-            preceded(
-                context(ParseTimingPointError::MissingBeatLength.into(), comma()),
-                alt((
-                    preceded(verify(success(0), |_| version <= 3), consume_rest_type()).map(
-                        |beat_length| {
-                            (
-                                beat_length,
-                                meter_fallback,
-                                sample_set_fallback,
-                                (sample_index_fallback, (volume_fallback, None, None)),
-                            )
-                        },
-                    ),
-                    tuple((
-                        comma_field_type(),
-                        preceded(
-                            context(ParseTimingPointError::MissingMeter.into(), comma()),
-                            context(
-                                ParseTimingPointError::InvalidMeter.into(),
-                                comma_field_type(),
-                            ),
-                        ),
-                        preceded(
-                            context(ParseTimingPointError::MissingSampleSet.into(), comma()),
-                            context(
-                                ParseTimingPointError::InvalidSampleSet.into(),
-                                comma_field_versioned_type(version),
-                            ),
-                        ),
-                        preceded(
-                            context(ParseTimingPointError::MissingSampleIndex.into(), comma()),
-                            alt((
-                                preceded(
-                                    verify(success(0), |_| version <= 4),
-                                    context(
-                                        ParseTimingPointError::InvalidSampleIndex.into(),
-                                        consume_rest_versioned_type(version),
-                                    ),
-                                )
-                                .map(|sample_index| (sample_index, (volume_fallback, None, None))),
-                                tuple((
-                                    context(
-                                        ParseTimingPointError::InvalidSampleIndex.into(),
-                                        comma_field_versioned_type(version),
-                                    ),
-                                    preceded(
-                                        context(
-                                            ParseTimingPointError::MissingVolume.into(),
-                                            comma(),
-                                        ),
-                                        alt((
-                                            preceded(
-                                                verify(success(0), |_| version <= 4),
-                                                context(
-                                                    ParseTimingPointError::InvalidVolume.into(),
-                                                    cut(consume_rest_versioned_type(version)),
-                                                ),
-                                            )
-                                            .map(|volume| (volume, None, None)),
-                                            context(
-                                                ParseTimingPointError::InvalidVolume.into(),
-                                                consume_rest_versioned_type(version),
-                                            )
-                                            .map(|volume| (volume, None, None)),
-                                            tuple((
-                                                context(
-                                                    ParseTimingPointError::InvalidVolume.into(),
-                                                    comma_field_versioned_type(version),
-                                                ),
-                                                preceded(context(
-                                                    ParseTimingPointError::MissingUninherited
-                                                        .into(),
-                                                    comma(),
-                                                ), 
-                                                alt((
-                                                    preceded(verify(success(0), |_| version <= 5), 
-                                                    context(
-                                                        ParseTimingPointError::InvalidUninherited.into(),
-                                                        map_res(rest, parse_zero_one_bool),
-                                                    )
-                                                ).map(|uninherited| (Some(uninherited), None)),         
-                                                tuple((
-                                                    context(
-                                                        ParseTimingPointError::InvalidUninherited
-                                                            .into(),
-                                                        map_res(comma_field(), parse_zero_one_bool),
-                                                    ),
-                                                preceded(
-                                                    context(
-                                                        ParseTimingPointError::MissingEffects
-                                                            .into(),
-                                                        comma(),
-                                                    ),
-                                                    context(
-                                                        ParseTimingPointError::InvalidEffects
-                                                            .into(),
-                                                        consume_rest_versioned_type(version),
-                                                    ),
-                                                ),
-                                                )).map(|(uninherited, effects)| (Some(uninherited), Some(effects))),
-                                            ))
-                                            )))
-                                            .map(
-                                                |(volume, (uninherited, effects))| {
-                                                    (volume, uninherited, effects)
-                                                },
-                                            ),
-                                        )),
-                                    ),
-                                ))
-                                .map(
-                                    |(sample_index, (volume, uninherited, effects))| {
-                                        (sample_index, (volume, uninherited, effects))
-                                    },
-                                ),
-                            )),
-                        ),
-                    ))
-                    .map(
-                        |(
-                            beat_length,
-                            meter,
-                            sample_set,
-                            (sample_index, (volume, uninherited, effects)),
-                        )| {
-                            (
-                                beat_length,
-                                meter,
-                                sample_set,
-                                (sample_index, (volume, uninherited, effects)),
-                            )
-                        },
-                    ),
-                )),
-            ),
-        ))(s)?;
+        if split_by_comma.len() != 8 {
+            return Err(ParseTimingPointError::InvalidFieldCount);
+        }
 
         Ok(Some(TimingPoint {
-            time,
-            beat_length,
-            meter,
-            sample_set,
-            sample_index,
-            volume,
-            uninherited,
-            effects,
-        }))
-    }
-}
+            time: {
+                let t = split_by_comma[0]
+                    .parse::<Integer>()
+                    .map_err(|_| { ParseTimingPointError::InvalidTime })?;
 
-impl VersionedToString for TimingPoint {
-    fn to_string(&self, version: Version) -> Option<String> {
-        let mut fields = vec![
-            if (3..=4).contains(&version) {
-                match self.time.get() {
-                    Either::Left(value) => (value - OLD_VERSION_TIME_OFFSET).to_string(),
-                    Either::Right(value) => value.to_string(),
+                if (3..=4).contains(&version) {
+                    t + OLD_VERSION_TIME_OFFSET.to_i32().unwrap()
+                } else {
+                    t
                 }
-            } else {
-                self.time.to_string()
             },
-            self.beat_length.to_string(),
-        ];
-
-        if version > 3 {
-            fields.push(self.meter.to_string());
-            fields.push(self.sample_set.to_string(version).unwrap());
-            fields.push(self.sample_index.to_string(version).unwrap());
-        }
-        if version > 4 {
-            fields.push(self.volume.to_string(version).unwrap());
-            match self.uninherited {
-                Some(value) => fields.push((value as u8).to_string()),
-                None => {
-                    if self.effects.is_some() {
-                        fields.push(String::new())
-                    }
-                }
-            }
-            if let Some(value) = self.effects {
-                fields.push(value.to_string(version).unwrap())
-            }
-        }
-
-        Some(fields.join(","))
+            beat_length: split_by_comma[1]
+                .parse::<Decimal>()
+                .map_err(|_| { ParseTimingPointError::InvalidBeatLength })?,
+            meter: split_by_comma[2]
+                .parse::<Integer>()
+                .map_err(|_| { ParseTimingPointError::InvalidMeter })?,
+            sample_set: SampleSet
+                ::from_str(split_by_comma[3], version)
+                .map_err(|_| { ParseTimingPointError::InvalidSampleSet })?
+                .unwrap(),
+            sample_index: SampleIndex
+                ::from_str(split_by_comma[4], version)
+                .map_err(|_| { ParseTimingPointError::InvalidSampleIndex })?
+                .unwrap(),
+            volume: Volume
+                ::from_str(split_by_comma[5], version)
+                .map_err(|_| { ParseTimingPointError::InvalidVolume })?
+                .unwrap(),
+            uninherited: match split_by_comma[6] {
+                "0" => Ok(false),
+                "1" => Ok(true),
+                _ => Err(ParseTimingPointError::InvalidUninherited)
+            }?,
+            effects: Effects
+                ::from_str(split_by_comma[7], version)
+                .map_err(|_| { ParseTimingPointError::InvalidVolume })?
+        }))
     }
 }

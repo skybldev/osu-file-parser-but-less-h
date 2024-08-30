@@ -5,8 +5,6 @@ use std::num::ParseIntError;
 use strum_macros::{EnumString, IntoStaticStr};
 use thiserror::Error;
 
-use crate::helper::macros::verbose_error_to_error;
-
 #[derive(Debug, Error)]
 #[error(transparent)]
 pub struct ParseError(#[from] ParseHitObjectError);
@@ -19,52 +17,36 @@ pub struct ComboSkipCountTooHigh;
 #[non_exhaustive]
 /// Error used when there was a problem parsing a `str` into a `ColonSet`.
 pub enum ParseColonSetError {
-    /// When the first item failed to parse.
-    #[error("Failed to parse the first item")]
-    InvalidFirstItem,
-    /// The colon separator is missing.
-    #[error("The colon separator is missing")]
-    MissingSeparator,
-    #[error("Failed to parse the second item")]
-    InvalidSecondItem,
+    /// When the length of the set is not 2.
+    #[error("The set is not two elements long.")]
+    InvalidLength,
+    #[error("Invalid `normal_set` or `addition_set` value")]
+    InvalidSet(#[from] ParseSampleSetError),
 }
 
-verbose_error_to_error!(ParseColonSetError);
 
-#[derive(Debug, Error, EnumString, IntoStaticStr)]
+#[derive(Debug, Error, IntoStaticStr, EnumString)]
+#[non_exhaustive]
+pub enum ParseCurvePointError {
+    /// When the length of the set is not 2.
+    #[error("The set is not two elements long.")]
+    InvalidLength,
+    #[error("Invalid `x` value")]
+    InvalidX,
+    #[error("Invalid `y` value")]
+    InvalidY,
+}
+
+#[derive(Debug, Error, IntoStaticStr)]
 #[non_exhaustive]
 /// Error used when there was a problem parsing a `str` into a [`HitObject`][super::HitObject].
 pub enum ParseHitObjectError {
-    /// Invalid `hit_sound` value.
-    #[error("Invalid `hit_sound` value")]
-    InvalidHitSound,
-    /// Missing `hit_sound` field.
-    #[error("Missing `hit_sound` field")]
-    MissingHitSound,
-    /// Missing `hit_sample` field.
-    #[error("Missing `hit_sample` field")]
-    MissingHitSample,
-    /// Invalid `hit_sample` value.
-    #[error("Invalid `hit_sample` value")]
-    InvalidHitSample,
     /// Invalid `x` value.
     #[error("Invalid `x` value")]
     InvalidX,
-    /// Missing `x` field.
-    #[error("Missing `x` field")]
-    MissingX,
     /// Invalid `y` value.
     #[error("Invalid `y` value")]
     InvalidY,
-    /// Missing `y` field.
-    #[error("Missing `y` field")]
-    MissingY,
-    /// Missing `obj_type` field.
-    #[error("Missing `obj_type` field")]
-    MissingObjType,
-    /// Invalid `obj_type` value.
-    #[error("Invalid `obj_type` value")]
-    InvalidObjType,
     /// Missing `time` field.
     #[error("Missing `time` field")]
     MissingTime,
@@ -74,67 +56,65 @@ pub enum ParseHitObjectError {
     /// Invalid `curve_type` value.
     #[error("Invalid `curve_type` value")]
     InvalidCurveType,
-    /// Missing `curve_type` field.
-    #[error("Missing `curve_type` field")]
-    MissingCurveType,
     /// Invalid `curve_point` value.
-    #[error("Invalid `curve_point` value")]
-    InvalidCurvePoint,
-    /// Missing `curve_point` field.
-    #[error("Missing `curve_point` field")]
-    MissingCurvePoint,
+    #[error(transparent)]
+    InvalidCurvePoint(#[from] ParseCurvePointError),
     /// Invalid `edge_sound` value.
     #[error("Invalid `edge_sound` value")]
     InvalidEdgeSound,
-    /// Missing `edge_sound` field.
-    #[error("Missing `edge_sound` field")]
-    MissingEdgeSound,
     /// Invalid `edge_set` value.
     #[error("Invalid `edge_set` value")]
-    InvalidEdgeSet,
-    /// Missing `edge_set` field.
-    #[error("Missing `edge_set` field")]
-    MissingEdgeSet,
+    InvalidEdgeSet(#[from] ParseColonSetError),
     /// Invalid `slides_count` value.
     #[error("Invalid `slides_count` value")]
     InvalidSlidesCount,
-    /// Missing `slides_count` field.
-    #[error("Missing `slides_count` field")]
-    MissingSlidesCount,
     /// Invalid `length` value.
     #[error("Invalid `length` value")]
     InvalidLength,
-    /// Missing `length` field.
-    #[error("Missing `length` field")]
-    MissingLength,
     /// Invalid `end_time` value.
     #[error("Invalid `end_time` value")]
     InvalidEndTime,
-    /// Missing `end_time` field.
-    #[error("Missing `end_time` field")]
-    MissingEndTime,
     /// Unknown object type.
     #[error("Unknown object type")]
     UnknownObjType,
+    /// Passthroughs
+    #[error(transparent)]
+    InvalidComboSkipCount(#[from] ComboSkipCountTooHigh),
+    #[error(transparent)]
+    InvalidHitSample(#[from] ParseHitSampleError),
+    #[error(transparent)]
+    InvalidHitSound(#[from] ParseHitSoundError),
+    #[error(transparent)]
+    InvalidHitObjectTypeNumber(#[from] ParseHitObjectTypeNumberError)
 }
 
-verbose_error_to_error!(ParseHitObjectError);
+#[derive(Debug, Error, IntoStaticStr)]
+#[non_exhaustive]
+pub enum ParseHitObjectTypeNumberError {
+    /// Invalid `obj_type` value.
+    #[error("Invalid `obj_type` value")]
+    InvalidObjType,
+    #[error("There was a problem parsing the `str` into an integer first")]
+    ParseValueError(#[from] ParseIntError),
+    #[error(transparent)]
+    ComboSkipCountTooHigh(#[from] ComboSkipCountTooHigh)
+}
 
 #[derive(Debug, Error, EnumString, IntoStaticStr)]
 #[non_exhaustive]
 /// Error used when there was a problem parsing a `str` into a [`hitsample`][super::types::HitSample].
 pub enum ParseHitSampleError {
-    #[error("Invalid `sample_set` value")]
-    InvalidSampleSet,
+    #[error("The set is not at least four elements long.")]
+    InvalidLength,
+    #[error("Invalid `normal_set` value")]
+    InvalidNormalSet,
+    #[error("Invalid `addition_set` value")]
+    InvalidAdditionSet,
     #[error("Invalid `index` value")]
     InvalidIndex,
     #[error("Invalid `volume` value")]
     InvalidVolume,
-    #[error("Missing field separator")]
-    MissingSeparator,
 }
-
-verbose_error_to_error!(ParseHitSampleError);
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
